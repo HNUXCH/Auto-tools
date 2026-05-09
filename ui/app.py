@@ -95,6 +95,8 @@ class MainWindow:
 
     def _run_standalone(self, tool) -> None:
         from ui.widgets.param_form import ParamForm
+        from tkinter import filedialog
+        from pathlib import Path
 
         params_cls = tool.params_type()
         if dataclasses.fields(params_cls):
@@ -132,21 +134,45 @@ class MainWindow:
         else:
             result_params = params_cls()
 
+        # 文件选择（独立工具需要输入文件和输出目录）
+        input_files: list[Path] | None = None
+        output_dir: Path | None = None
+
+        if tool.input_mode == InputMode.NONE:
+            if tool.category == "pdf":
+                filetypes = [("PDF files", "*.pdf")] if tool.name_slug == "pdf_to_word" else [("Word files", "*.docx")]
+                files = filedialog.askopenfilenames(parent=self.root, title="选择输入文件", filetypes=filetypes)
+                if not files:
+                    return
+                input_files = [Path(f) for f in files]
+            elif tool.category == "web":
+                input_files = []  # 爬虫不需要输入文件
+            # 选择输出目录
+            out = filedialog.askdirectory(parent=self.root, title="选择输出目录")
+            if not out:
+                return
+            output_dir = Path(out)
+
         self._enter_running()
         threading.Thread(
             target=self._run_standalone_async,
-            args=(tool, result_params),
+            args=(tool, result_params, input_files, output_dir),
             daemon=True,
         ).start()
 
-    def _run_standalone_async(self, tool, params) -> None:
-        from pathlib import Path
+    def _run_standalone_async(self, tool, params, input_files=None, output_dir=None) -> None:
         import tempfile
+        from pathlib import Path
 
         try:
             with tempfile.TemporaryDirectory(prefix="autotools_") as tmp:
                 work = Path(tmp) / "work"
                 work.mkdir()
+
+                # 复制输入文件到 work（独立工具）
+                if input_files:
+                    for f in input_files:
+                        shutil.copy2(f, work / f.name)
 
                 def _progress(i: int, t: int, name: str) -> None:
                     pct = (i / max(t, 1)) * 100
@@ -154,12 +180,20 @@ class MainWindow:
 
                 result = tool.run(work, params, _progress, self._cancel_event)
 
+                # 复制输出到用户目录
+                if output_dir:
+                    for f in work.iterdir():
+                        if f.is_file():
+                            shutil.copy2(f, output_dir / f.name)
+
             def _finish() -> None:
                 self._enter_idle()
                 if result.errors:
                     msg = f"完成 {result.done}/{result.total}\n⚠ {len(result.errors)} 个错误\n" + "\n".join(result.errors[:5])
                 else:
                     msg = f"完成 {result.done}/{result.total}"
+                    if output_dir:
+                        msg += f"\n输出目录: {output_dir}"
                 messagebox.showinfo(tool.name, msg)
 
             self.root.after(0, _finish)
