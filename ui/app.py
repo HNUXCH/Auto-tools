@@ -211,18 +211,40 @@ class MainWindow:
             messagebox.showerror("提示", "流水线至少需要一个步骤。", parent=self.root)
             return
 
-        self._enter_running()
-        threading.Thread(target=self._run_async, args=(steps,), daemon=True).start()
+        # 验证参数
+        for step in steps:
+            errs = step.tool.validate_params(step.params)
+            if errs:
+                messagebox.showerror(
+                    f"参数错误 — {step.tool.name}",
+                    "\n".join(errs),
+                    parent=self.root,
+                )
+                return
 
-    def _run_async(self, steps: list[PipelineStep]) -> None:
+        # 主线程弹目录选择
+        from tkinter import filedialog
+        input_dir = filedialog.askdirectory(parent=self.root, title="选择输入目录")
+        if not input_dir:
+            return
+        output_dir = filedialog.askdirectory(parent=self.root, title="选择输出目录")
+        if not output_dir:
+            return
+
+        self._enter_running()
+        threading.Thread(target=self._run_async, args=(steps, input_dir, output_dir), daemon=True).start()
+
+    def _run_async(self, steps: list[PipelineStep], input_dir: str, output_dir: str) -> None:
         result = execute_pipeline(
-            self.root, steps,
+            steps, input_dir, output_dir,
+            cancel_event=self._cancel_event,
             on_status=lambda p, t, d: self.root.after(0, lambda: self._progress.update(p, t, d)),
         )
 
         def _finish() -> None:
             self._enter_idle()
             if result is None:
+                messagebox.showerror("流水线失败", "参数验证失败。")
                 return
             if result.success:
                 messagebox.showinfo("流水线完成", "\n".join(result.logs))

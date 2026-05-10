@@ -68,8 +68,9 @@ def show_load_dialog(parent: tk.Widget) -> list[PipelineStep] | None:
 
     ttk.Label(dialog, text="选择预设:").pack(padx=12, pady=(12, 6))
 
-    selection = tk.StringVar(value=names[0])
-    lb = tk.Listbox(dialog, listvariable=tk.StringVar(value=names), height=min(8, len(names)), width=28)
+    lb = tk.Listbox(dialog, height=min(8, len(names)), width=28)
+    for n in names:
+        lb.insert("end", n)
     lb.pack(padx=12, pady=(0, 8))
 
     result: list[PipelineStep] | None = None
