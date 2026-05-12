@@ -146,12 +146,15 @@ class MainWindow:
                     return
                 input_files = [Path(f) for f in files]
             elif tool.category == "web":
-                input_files = []  # 爬虫不需要输入文件
-            # 选择输出目录
-            out = filedialog.askdirectory(parent=self.root, title="选择输出目录")
-            if not out:
-                return
-            output_dir = Path(out)
+                input_files = []  # 爬虫/判题不需要输入文件
+            # 选择输出目录（在线判题不需要）
+            if tool.name_slug == "code_judge":
+                output_dir = Path(".")  # 不使用，占位
+            else:
+                out = filedialog.askdirectory(parent=self.root, title="选择输出目录")
+                if not out:
+                    return
+                output_dir = Path(out)
 
         self._enter_running()
         threading.Thread(

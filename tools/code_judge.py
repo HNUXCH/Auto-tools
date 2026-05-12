@@ -16,7 +16,7 @@ from core.tool_base import InputMode, ProgressCallback, Tool, ToolParams, ToolRe
 
 @dataclass
 class CodeJudgeParams(ToolParams):
-    problems_dir: str = ""  # CSP 题目 Markdown 文件目录，空则让用户选择
+    problems_dir: Path = Path(".")  # CSP 题目 Markdown 文件目录（ParamForm 会用浏览按钮选择）
 
 
 class CodeJudgeTool(Tool):
@@ -31,8 +31,12 @@ class CodeJudgeTool(Tool):
 
     def validate_params(self, params: ToolParams) -> list[str]:
         p: CodeJudgeParams = params
-        if p.problems_dir and not Path(p.problems_dir).exists():
-            return [f"题目目录不存在: {p.problems_dir}"]
+        pd = Path(p.problems_dir) if isinstance(p.problems_dir, str) else p.problems_dir
+        pd = pd.resolve()
+        if not pd.exists():
+            return [f"题目目录不存在: {pd}\n请选择 CSP 真题爬虫输出目录下的 problems/ 文件夹"]
+        if not list(pd.glob("*.md")):
+            return [f"所选目录没有 .md 题目文件: {pd}"]
         return []
 
     def run(
@@ -44,16 +48,13 @@ class CodeJudgeTool(Tool):
     ) -> ToolResult:
         p: CodeJudgeParams = params
 
-        # 确定题目目录
-        if p.problems_dir.strip():
-            problems_dir = Path(p.problems_dir.strip())
-        else:
-            problems_dir = work_dir / "problems"
+        pd = Path(p.problems_dir) if isinstance(p.problems_dir, str) else p.problems_dir
+        problems_dir = pd.resolve()
 
-        if not problems_dir.exists():
+        if not problems_dir.exists() or not list(problems_dir.glob("*.md")):
             return ToolResult(
                 done=0, total=1,
-                errors=[f"题目目录不存在: {problems_dir}\n请先用 CSP 真题爬虫下载题目。"],
+                errors=[f"题目目录无效: {problems_dir}\n请先用 CSP 真题爬虫下载题目到一个目录。"],
             )
 
         md_files = list(problems_dir.glob("*.md"))
