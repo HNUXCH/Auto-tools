@@ -2,9 +2,9 @@
 
 ## 1. 项目概述
 
-Auto-tools 是一个面向 Windows 平台的 Python GUI 自动化工具集。将图片处理、PDF 操作、网页抓取三大类工具整合到统一平台中，支持流水线编排、参数预设、自动表单生成。
+Auto-tools 是一个面向 Windows 平台的 Python GUI 自动化工具集。将图片处理、PDF 操作、网页抓取、在线判题四大类工具整合到统一平台中，支持流水线编排、参数预设、自动表单生成。
 
-**技术栈:** Python 3.10+, tkinter, Pillow, pypdf, pdf2docx, docx2pdf, requests, beautifulsoup4
+**技术栈:** Python 3.10+, tkinter, Pillow, pypdf, pdf2docx, docx2pdf, requests, beautifulsoup4, Flask
 
 **设计目标:**
 - 零用户代码：参数表单由 dataclass 字段类型自动生成，无需手写 UI
@@ -24,6 +24,7 @@ Auto-tools 是一个面向 Windows 平台的 Python GUI 自动化工具集。将
 │  ├── app.py           主窗口              │
 │  ├── pipeline_editor.py  流水线编辑器      │
 │  ├── preset_dialog.py    预设对话框        │
+│  ├── judge_server.py    在线判题服务器      │
 │  └── widgets/
 │      ├── param_form.py    自动参数表单     │
 │      └── progress_panel.py  进度面板       │
@@ -40,7 +41,10 @@ Auto-tools 是一个面向 Windows 平台的 Python GUI 自动化工具集。将
 │  ├── pdf_merge.py / pdf_split.py           │
 │  ├── pdf_extract_text.py / pdf_rotate.py   │
 │  ├── pdf_to_word.py / word_to_pdf.py       │
-│  └── crawler_beginner.py / crawler_intermediate.py │
+│  ├── crawler_beginner.py                   │
+│  ├── crawler_intermediate.py               │
+│  ├── crawler_csp.py     CSP 真题爬虫        │
+│  └── code_judge.py     在线判题启动器       │
 └──────────────────────────────────────────┘
 ```
 
@@ -222,19 +226,20 @@ def _resolve_type(raw):
 ```
 ┌──────────────────────────────┐
 │  工具箱 (ttk.Notebook)        │
-│  ┌─ 📷图片 ─┬─ 📄PDF ─┬─ 🌐网页 ─┐
+│  ┌─ 图片 ─┬─  PDF ─┬─  网页 ─┐
 │  │ 批量重命名│ PDF合并  │ 入门爬虫  │
 │  │ 文字水印  │ PDF拆分  │ 中级爬虫  │
-│  │ 批量压缩  │ ...      │          │
+│  │ 批量压缩  │ ...      │ CSP爬虫   │
+│  │          │          │ 在线判题   │
 │  └──────────┴─────────┴──────────┘
 ├──────────────────────────────┤
 │  流水线编辑器                   │
 │  [工具选择 ▼] [+ 添加步骤]     │
-│  步骤1: ✏️ 批量重命名  [参数][×]│
-│  步骤2: 💧 文字水印    [参数][×]│
+│  步骤1: 批量重命名  [参数][×]  │
+│  步骤2: 文字水印    [参数][×]  │
 ├──────────────────────────────┤
 │  [▶ 执行] [⏹ 取消]           │
-│  [📋 保存预设] [📂 加载预设]   │
+│  [保存预设] [加载预设]        │
 │  ████████████░░░░ 67%         │
 └──────────────────────────────┘
 ```
@@ -363,7 +368,128 @@ def _resolve_type(raw):
 
 ---
 
-## 10. 目录结构
+## 10. CSP 真题爬虫 (`tools/crawler_csp.py`)
+
+### 数据源与规模
+
+从曙梦 OJ (oj.shumeng.tech) 抓取 CCF CSP 软件能力认证历年真题。
+
+- **题目数量:** 108 道，覆盖 2013~2026 全部认证
+- **完整内容:** 77 道（Markdown 含题目描述、输入/输出格式、样例、约束）
+- **降级内容:** 31 道（og:description 元数据摘要，因 OJ 端的 JSON 序列化 bug）
+
+### 抓取流程
+
+```
+1. 分页扫描 /p?q=category%3ACSP&page={1..3}
+   → 从 <a href="/p/CSP201312A"> 提取 108 个题目 ID
+
+2. 逐题请求 /p/{id}
+   → 从 HTML 中提取 window.UiContextNew 的 JSON payload
+   → 解析 pdoc.content（双层 JSON 嵌套）
+   → 提取 Markdown 内容
+
+3. 输出：
+   └─ problems/CSP201312A.md  ... (108 个 Markdown 文件)
+   └─ csp_index.csv            (索引：ID、标题、年份、月份、题号、时限、标签)
+```
+
+### JSON 提取技术
+
+Hydro OJ 将题目数据嵌入 HTML 的 `window.UiContextNew = '{...}'` 中。提取过程：
+
+1. **定位:** 找到 `UiContextNew` → `=` → `'` → 用引号计数找匹配闭合引号
+2. **解析:** `json.loads()` 得到外层 JSON → `pdoc.content` 是内层 JSON 字符串
+3. **再解析:** `json.loads(content)` 得到 `{zh: "Markdown 正文"}`
+4. **降级:** 若 JSON 解析失败（三重转义 bug），用 BeautifulSoup 解析 `<meta property="og:description">` 取摘要
+
+### 请求策略
+
+- 请求间隔 0.8 秒（避免给服务器压力）
+- 超时 20 秒
+- 支持 `cancel_event` 中途取消
+- 单题失败不中断全量抓取
+
+---
+
+## 11. 在线判题 (`tools/code_judge.py` + `ui/judge_server.py`)
+
+### 功能概述
+
+类似力扣（LeetCode）的浏览器内代码编辑与自动判题系统。基于 Flask 搭建本地 Web 服务，前端使用 CodeMirror 编辑器 + marked.js Markdown 渲染。
+
+### 架构
+
+```
+┌─ 浏览器 (SPA) ─────────────────────────────┐
+│  左侧面板: marked.js 渲染题目 Markdown       │
+│  右侧面板: CodeMirror Python 编辑器          │
+│  底部面板: 判题结果（通过/错误/超时）         │
+├─────────────────────────────────────────────┤
+│  HTTP API (Flask, 本地 127.0.0.1)          │
+│  GET  /                SPA 首页             │
+│  GET  /api/problems    题目列表             │
+│  GET  /api/problem/:id 题目详情 + 样例解析    │
+│  POST /api/run         执行代码 → 判题结果   │
+├─────────────────────────────────────────────┤
+│  判题引擎                                    │
+│  1. 解析 Markdown 提取样例 (```input/output) │
+│  2. 用户代码写入临时 .py → subprocess.run()  │
+│  3. stdin 喂入样例，比对 stdout 与期望输出     │
+│  4. 返回: accepted / wrong_answer / timeout  │
+└─────────────────────────────────────────────┘
+```
+
+### 样例提取
+
+```python
+# 正则匹配 Markdown 中的样例块
+_SAMPLE_RE = re.compile(
+    r'```input(\d*)\s*\n(.*?)```\s*\n+```output\1\s*\n(.*?)```',
+    re.DOTALL,
+)
+
+# Hydro OJ 的 JSON 将 \n 存为字面量，需要 unescape
+def _unescape_content(content):
+    return codecs.decode(content, "unicode_escape")
+```
+
+### 判题流程
+
+```
+POST /api/run {code, problem_id}
+  → 加载 problems/{id}.md → 提取 N 对样例
+  → for each 样例:
+      subprocess.run(["python", "-c", code],
+        input=sample_input,
+        capture_output=True, text=True, timeout=5)
+      → 比对 output.strip() vs expected.strip()
+      → 记录: accepted | wrong_answer | runtime_error | timeout
+  → 返回 {passed, total, results[], all_pass}
+```
+
+### 安全措施
+
+- 5 秒超时限制（`subprocess.run(timeout=5)`）
+- 仅监听 127.0.0.1（不可从局域网访问）
+- Werkzeug 开发服务器（非生产环境，仅本地使用）
+- 不支持网络访问或文件系统操作（subprocess 无 shell=True）
+
+### 启动流程
+
+```
+code_judge Tool (InputMode.NONE)
+  → 用户选择题目目录
+  → socket 获取空闲端口
+  → threading 启动 Flask
+  → 轮询等待服务器就绪
+  → webbrowser.open(url)
+  → 返回 ToolResult
+```
+
+---
+
+## 12. 目录结构
 
 ```
 auto-tools/
@@ -384,6 +510,7 @@ auto-tools/
 │   ├── app.py                  # MainWindow
 │   ├── pipeline_editor.py      # PipelineEditor (ttk.LabelFrame)
 │   ├── preset_dialog.py        # show_save/load_dialog()
+│   ├── judge_server.py         # Flask 在线判题服务器
 │   └── widgets/
 │       ├── __init__.py
 │       ├── param_form.py       # ParamForm (dataclass → tkinter)
@@ -400,14 +527,16 @@ auto-tools/
 │   ├── pdf_to_word.py          # PDF → DOCX
 │   ├── word_to_pdf.py          # DOCX → PDF
 │   ├── crawler_beginner.py     # 入门爬虫
-│   └── crawler_intermediate.py # 中级爬虫
+│   ├── crawler_intermediate.py # 中级爬虫
+│   ├── crawler_csp.py          # CSP 真题爬虫
+│   └── code_judge.py           # 在线判题启动器
 └── presets/
     └── .gitkeep                # 预设存储目录
 ```
 
 ---
 
-## 11. 扩展指南：添加新工具
+## 13. 扩展指南：添加新工具
 
 以添加一个 `png_to_jpg` 工具为例：
 
@@ -458,7 +587,7 @@ class PngToJpgTool(Tool):
                     jpg = img.convert("RGB")
                     new_path = img_path.with_suffix(".jpg")
                     jpg.save(new_path, "JPEG", quality=p.quality)
-                    img_path.unlink()  # 删除原 PNG
+                    img_path.unlink()
                     done += 1
             except Exception as exc:
                 errors.append(f"转换失败 [{img_path.name}]: {exc}")
@@ -475,7 +604,7 @@ ParamForm 自动识别 `PngToJpgParams` 的 `quality: int` 字段，生成带数
 
 ---
 
-## 12. 已知限制
+## 14. 已知限制
 
 | 限制 | 说明 |
 |------|------|
@@ -485,3 +614,5 @@ ParamForm 自动识别 `PngToJpgParams` 的 `quality: int` 字段，生成带数
 | 无命令行模式 | 纯 GUI，不支持 CI/脚本调用 |
 | 单实例 | 不支持多个流水线并行执行 |
 | 无国际化 | 所有 UI 文字硬编码中文 |
+| 判题仅 Python | 在线判题目前只支持 Python 代码执行 |
+| 判题仅本地 | 判题服务器监听 127.0.0.1，不可远程访问 |

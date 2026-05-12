@@ -8,6 +8,8 @@ Auto-tools — 统一的 Python GUI 自动化工具平台，面向 Windows。
 
 单一入口 `main.py`，tkinter GUI。所有工具通过 `core/tool_base.py` 定义的 `Tool` 协议注册到 `ToolRegistry`，支持流水线串联执行。
 
+内置在线判题系统（`ui/judge_server.py` — Flask + CodeMirror），提供类力扣的浏览器编程环境，搭配 CSP 真题爬虫可实现题目下载→在线编码→自动判题的一站式流程。
+
 ## 运行方式
 
 ```bash
@@ -19,8 +21,8 @@ python main.py
 
 ```
 core/          — 平台核心：Tool 协议、注册表、流水线引擎、预设系统
-ui/            — tkinter GUI：主窗口、流水线编辑器、预设对话框、组件
-tools/         — 11 个工具，每个实现 Tool 协议，末尾调用 ToolRegistry.register()
+ui/            — tkinter GUI + Flask 判题服务器：主窗口、流水线编辑器、预设对话框、组件
+tools/         — 13 个工具，每个实现 Tool 协议，末尾调用 ToolRegistry.register()
 main.py        — 导入所有工具，启动 MainWindow
 presets/       — 用户保存的流水线预设 (JSON)
 ```
@@ -59,6 +61,8 @@ presets/       — 用户保存的流水线预设 (JSON)
 | `word_to_pdf` | Word → PDF | pdf | NONE | docx2pdf |
 | `crawler_beginner` | 入门爬虫 | web | NONE | requests, beautifulsoup4 |
 | `crawler_intermediate` | 中级爬虫 | web | NONE | requests, beautifulsoup4 |
+| `crawler_csp` | CSP 真题爬虫 | web | NONE | requests, beautifulsoup4 |
+| `code_judge` | 在线判题 | web | NONE | Flask |
 
 ## 编码约定
 
