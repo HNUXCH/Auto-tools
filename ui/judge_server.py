@@ -213,10 +213,12 @@ def api_problem(pid: str):
                 "output": samples[i + 1] if i + 1 < len(samples) else "",
             })
 
+        # 对显示用的 content 做 unescape（修复 Hydro OJ 的 \\n 字面量问题）
+        display_content = _unescape_content(content)
         return jsonify({
             "id": pid,
             "title": title,
-            "content": content,
+            "content": display_content,
             "samples": sample_pairs,
             "sample_count": len(sample_pairs),
         })
@@ -263,72 +265,120 @@ _HTML_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Auto-tools OJ</title>
+<title>Auto-tools OJ — CSP 在线判题</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
 <style>
+:root {
+  --bg: #1e1e2e;
+  --surface: #282840;
+  --border: #3a3a55;
+  --text: #cdd6f4;
+  --text-dim: #6c7086;
+  --accent: #89b4fa;
+  --green: #a6e3a1;
+  --red: #f38ba8;
+  --yellow: #f9e2af;
+  --header-bg: #11111b;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, "Microsoft YaHei", sans-serif; height: 100vh; display: flex; flex-direction: column; }
-header { background: #1a1a2e; color: #fff; padding: 6px 16px; display: flex; align-items: center; gap: 16px; font-size: 14px; }
-header h1 { font-size: 16px; }
-header select { padding: 4px 8px; border-radius: 4px; border: none; font-size: 13px; min-width: 180px; }
+body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; height: 100vh; display: flex; flex-direction: column; background: var(--bg); color: var(--text); }
 
+/* ---- header ---- */
+header { background: var(--header-bg); padding: 8px 16px; display: flex; align-items: center; gap: 14px; font-size: 14px; border-bottom: 1px solid var(--border); }
+header h1 { font-size: 16px; color: var(--accent); white-space: nowrap; }
+header select { padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; min-width: 220px; outline: none; }
+header select:focus { border-color: var(--accent); }
+header .lang-tag { font-size: 12px; color: var(--text-dim); background: var(--surface); padding: 3px 10px; border-radius: 4px; }
+
+/* ---- main + panels ---- */
 .main { display: flex; flex: 1; overflow: hidden; }
-.panel-left { width: 45%; border-right: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden; }
-.panel-right { width: 55%; display: flex; flex-direction: column; overflow: hidden; }
-.panel-left-header { padding: 8px 12px; background: #f5f5f5; border-bottom: 1px solid #ddd; font-weight: bold; font-size: 13px; }
-.panel-left-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
-.panel-right-header { padding: 6px 10px; background: #f5f5f5; border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
-.editor-wrap { flex: 1; overflow: hidden; }
-.editor-wrap .CodeMirror { height: 100% !important; }
-.result-panel { max-height: 200px; overflow-y: auto; border-top: 1px solid #ddd; background: #fafafa; }
-.result-item { padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; display: flex; align-items: flex-start; gap: 8px; }
-.result-item.pass { background: #e8f5e9; }
-.result-item.fail { background: #ffebee; }
-.result-item .icon { font-size: 16px; min-width: 20px; }
-.result-item .info { flex: 1; }
-.result-item .info .detail { font-size: 11px; color: #666; margin-top: 2px; white-space: pre-wrap; }
-.btn { padding: 5px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
-.btn-run { background: #4caf50; color: #fff; }
-.btn-run:hover { background: #388e3c; }
-.btn-run:disabled { background: #9e9e9e; cursor: not-allowed; }
-.summary { padding: 6px 12px; font-size: 13px; font-weight: bold; }
-.summary.success { color: #2e7d32; }
-.summary.fail { color: #c62828; }
+.panel-left { width: calc(45% - 3px); display: flex; flex-direction: column; overflow: hidden; }
+.panel-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-/* Markdown styles */
-.markdown { font-size: 13px; line-height: 1.7; color: #333; }
-.markdown h1,.markdown h2,.markdown h3 { margin: 8px 0 4px; color: #1a1a2e; }
-.markdown h2 { font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
-.markdown p { margin: 4px 0; }
-.markdown code { background: #f0f0f0; padding: 1px 4px; border-radius: 2px; font-size: 12px; }
-.markdown pre { background: #f5f5f5; padding: 8px 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 4px 0; }
-.markdown ul,.markdown ol { padding-left: 20px; }
+/* ---- draggable divider ---- */
+.divider { width: 6px; cursor: col-resize; background: var(--border); flex-shrink: 0; transition: background 0.15s; }
+.divider:hover,.divider.active { background: var(--accent); }
+
+/* ---- panel headers ---- */
+.panel-left-header { padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; color: var(--accent); }
+.panel-right-header { padding: 6px 14px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+
+/* ---- panel body ---- */
+.panel-left-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+.panel-left-body::-webkit-scrollbar { width: 6px; }
+.panel-left-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ---- editor ---- */
+.editor-wrap { flex: 1; overflow: hidden; }
+.editor-wrap .CodeMirror { height: 100% !important; font-size: 14px; }
+
+/* ---- result panel ---- */
+.result-panel { max-height: 220px; overflow-y: auto; border-top: 1px solid var(--border); background: var(--surface); }
+.result-item { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; display: flex; align-items: flex-start; gap: 10px; }
+.result-item.pass { background: rgba(166,227,161,0.08); }
+.result-item.fail { background: rgba(243,139,168,0.08); }
+.result-item .icon { font-size: 16px; min-width: 22px; text-align: center; }
+.result-item .info { flex: 1; min-width: 0; }
+.result-item .info .detail { font-size: 12px; color: var(--text-dim); margin-top: 3px; white-space: pre-wrap; word-break: break-all; }
+
+/* ---- buttons ---- */
+.btn { padding: 6px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+.btn-run { background: var(--green); color: #1e1e2e; }
+.btn-run:hover { filter: brightness(1.15); }
+.btn-run:disabled { background: var(--border); color: var(--text-dim); cursor: not-allowed; filter: none; }
+
+/* ---- summary ---- */
+.summary { padding: 8px 14px; font-size: 14px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.summary.success { color: var(--green); }
+.summary.fail { color: var(--red); }
+
+/* ---- markdown ---- */
+.markdown { font-size: 14px; line-height: 1.85; color: var(--text); word-wrap: break-word; }
+.markdown h1 { font-size: 20px; margin: 12px 0 6px; color: var(--accent); }
+.markdown h2 { font-size: 16px; margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); color: #cba6f7; }
+.markdown h3 { font-size: 14px; margin: 10px 0 4px; color: var(--yellow); }
+.markdown p { margin: 6px 0; }
+.markdown strong { color: #fab387; }
+.markdown code { background: var(--surface); padding: 2px 6px; border-radius: 3px; font-size: 13px; color: var(--green); font-family: "Cascadia Code", "Fira Code", "Consolas", monospace; }
+.markdown pre { background: #11111b; padding: 12px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 8px 0; border: 1px solid var(--border); }
+.markdown pre code { background: none; padding: 0; color: var(--text); }
+.markdown ul,.markdown ol { padding-left: 24px; margin: 6px 0; }
+.markdown li { margin: 3px 0; }
+.markdown table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+.markdown th { background: var(--surface); padding: 6px 10px; border: 1px solid var(--border); text-align: left; font-weight: 600; }
+.markdown td { padding: 5px 10px; border: 1px solid var(--border); }
+.markdown blockquote { border-left: 3px solid var(--accent); margin: 8px 0; padding: 4px 14px; color: var(--text-dim); background: rgba(137,180,250,0.05); }
+.markdown hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+.markdown a { color: var(--accent); }
+
+/* ---- warning for truncated content ---- */
+.content-warning { background: rgba(249,226,175,0.1); border: 1px solid rgba(249,226,175,0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: var(--yellow); }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>⚡ Auto-tools OJ</h1>
-  <span style="color:#aaa">|</span>
+  <h1> Auto-tools OJ</h1>
   <select id="problemSelect" onchange="loadProblem()">
     <option value="">-- 选择题目 --</option>
   </select>
-  <span style="font-size:12px;color:#aaa;flex:1"></span>
-  <span style="font-size:12px;color:#aaa">Python 3</span>
+  <span style="flex:1"></span>
+  <span style="font-size:12px;color:var(--text-dim)">Python 3</span>
 </header>
 
 <div class="main">
-  <div class="panel-left">
+  <div class="panel-left" id="panelLeft">
     <div class="panel-left-header" id="problemTitle">请选择题目</div>
     <div class="panel-left-body markdown" id="problemBody">
-      <p style="color:#999">← 从上方下拉框选择一道 CSP 真题</p>
+      <p style="color:var(--text-dim)"> 从上方下拉框选择一道 CSP 真题</p>
     </div>
   </div>
-  <div class="panel-right">
+  <div class="divider" id="divider"></div>
+  <div class="panel-right" id="panelRight">
     <div class="panel-right-header">
-      <span>💻 代码编辑器</span>
-      <button class="btn btn-run" id="runBtn" onclick="runCode()">▶ 运行测试</button>
+      <span> 代码编辑器</span>
+      <button class="btn btn-run" id="runBtn" onclick="runCode()"> 运行测试</button>
     </div>
     <div class="editor-wrap" id="editorWrap"></div>
     <div class="result-panel" id="resultPanel" style="display:none"></div>
@@ -340,102 +390,139 @@ header select { padding: 4px 8px; border-radius: 4px; border: none; font-size: 1
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
 
 <script>
+// ── CodeMirror ──
 var editor = CodeMirror(document.getElementById('editorWrap'), {
   mode: 'python',
-  theme: 'monokai',
+  theme: 'material-darker',
   lineNumbers: true,
   indentUnit: 4,
   tabSize: 4,
   value: '# 选择题目后开始写代码\n',
 });
 
+// ── 拖拽调整面板宽度 ──
+(function(){
+  var divider = document.getElementById('divider');
+  var left = document.getElementById('panelLeft');
+  var right = document.getElementById('panelRight');
+  var main = document.querySelector('.main');
+  var isDragging = false;
+
+  divider.addEventListener('mousedown', function(e) {
+    isDragging = true;
+    divider.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    var rect = main.getBoundingClientRect();
+    var x = e.clientX - rect.left;
+    if (x < 200) x = 200;
+    if (x > rect.width - 350) x = rect.width - 350;
+    left.style.width = (x - 3) + 'px';
+    left.style.flex = 'none';
+    right.style.flex = '1';
+    editor.refresh();
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!isDragging) return;
+    isDragging = false;
+    divider.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
+
+// ── 加载题目列表 ──
 var currentProblem = null;
 
-// 加载题目列表
 fetch('/api/problems')
-  .then(r => r.json())
-  .then(problems => {
+  .then(function(r){ return r.json(); })
+  .then(function(problems){
     var sel = document.getElementById('problemSelect');
-    problems.forEach(function(p) {
+    problems.forEach(function(p){
       var opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = p.id + ' - ' + p.title;
+      opt.textContent = p.id + '  ' + p.title;
       sel.appendChild(opt);
     });
   })
   .catch(console.error);
 
-function loadProblem() {
+// ── 加载题目详情 ──
+function loadProblem(){
   var pid = document.getElementById('problemSelect').value;
-  if (!pid) return;
+  if(!pid) return;
 
-  fetch('/api/problem/' + pid)
-    .then(r => r.json())
-    .then(function(data) {
+  fetch('/api/problem/'+pid)
+    .then(function(r){ return r.json(); })
+    .then(function(data){
       currentProblem = data;
       document.getElementById('problemTitle').textContent = data.id + '. ' + data.title;
-      document.getElementById('problemBody').innerHTML = marked.parse(data.content);
       document.getElementById('resultPanel').style.display = 'none';
-      editor.setValue('# ' + data.id + '. ' + data.title + '\n# 在这里写你的 Python 代码...\n\n');
+
+      var html = '';
+      // 检测降级内容（仅含"曙梦 OJ"的占位摘要）
+      if(data.content.length < 200 && data.content.indexOf('曙梦')>=0){
+        html += '<div class="content-warning"> 此题仅获取到摘要信息（题目源站 JSON 序列化异常），完整内容请访问 <a href="https://oj.shumeng.tech/p/'+data.id+'" target="_blank">曙梦 OJ</a> 查看。</div>';
+      }
+      html += marked.parse(data.content);
+      document.getElementById('problemBody').innerHTML = html;
+
+      editor.setValue('# '+data.id+'. '+data.title+'\n# 在此编写 Python 代码\n\n');
     })
     .catch(console.error);
 }
 
-function runCode() {
-  if (!currentProblem) { alert('请先选择题目'); return; }
+// ── 运行判题 ──
+function runCode(){
+  if(!currentProblem){ alert('请先选择题目'); return; }
   var code = editor.getValue();
   var btn = document.getElementById('runBtn');
   btn.disabled = true;
-  btn.textContent = '⏳ 运行中...';
+  btn.textContent = '  运行中...';
 
-  fetch('/api/run', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({code: code, problem_id: currentProblem.id})
+  fetch('/api/run',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({code:code,problem_id:currentProblem.id})
   })
-    .then(r => r.json())
-    .then(function(res) {
+    .then(function(r){ return r.json(); })
+    .then(function(res){
       btn.disabled = false;
-      btn.textContent = '▶ 运行测试';
-
+      btn.textContent = ' 运行测试';
       var panel = document.getElementById('resultPanel');
       panel.style.display = 'block';
 
       var html = '';
-      if (res.passed !== undefined) {
+      if(res.passed !== undefined){
         var cls = res.all_pass ? 'success' : 'fail';
-        html += '<div class="summary ' + cls + '">' +
-          (res.all_pass ? '✓ 全部通过' : '✗ 未通过') +
-          ' (' + res.passed + '/' + res.total + ')' +
-          '</div>';
-      } else {
-        html += '<div class="summary fail">错误: ' + (res.error || '未知') + '</div>';
+        html += '<div class="summary '+cls+'">'+
+          (res.all_pass ? ' 全部通过' : ' 未通过')+
+          ' ('+res.passed+'/'+res.total+')</div>';
+      }else{
+        html += '<div class="summary fail">错误: '+(res.error||'未知')+'</div>';
       }
-
-      (res.results || []).forEach(function(r) {
-        var cls = r.status === 'accepted' ? 'pass' : 'fail';
-        var icon = r.status === 'accepted' ? '✅' :
-                   r.status === 'wrong_answer' ? '❌' :
-                   r.status === 'timeout' ? '⏱️' : '💥';
-        var statusText = r.status === 'accepted' ? '通过' :
-                         r.status === 'wrong_answer' ? '答案错误' :
-                         r.status === 'timeout' ? '超时' : '运行错误';
-
-        html += '<div class="result-item ' + cls + '">' +
-          '<span class="icon">' + icon + '</span>' +
-          '<div class="info">' +
-            '<b>样例 ' + r.case + '</b> — ' + statusText +
-            (r.time_ms ? ' (' + r.time_ms + 'ms)' : '') +
-            (r.error ? '<div class="detail">' + r.error + '</div>' : '') +
-          '</div>' +
-        '</div>';
+      (res.results||[]).forEach(function(r){
+        var cls = r.status==='accepted'?'pass':'fail';
+        var icon = {'accepted':'','wrong_answer':'','timeout':'','runtime_error':''}[r.status]||'';
+        var text = {'accepted':'通过','wrong_answer':'答案错误','timeout':'超时','runtime_error':'运行错误'}[r.status]||r.status;
+        html += '<div class="result-item '+cls+'">'+
+          '<span class="icon">'+icon+'</span>'+
+          '<div class="info"><b>样例 '+r.case+'</b> — '+text+
+          (r.time_ms?' ('+r.time_ms+'ms)':'')+
+          (r.error?'<div class="detail">'+r.error+'</div>':'')+
+          '</div></div>';
       });
-
       panel.innerHTML = html;
     })
-    .catch(function(err) {
+    .catch(function(err){
       btn.disabled = false;
-      btn.textContent = '▶ 运行测试';
+      btn.textContent = ' 运行测试';
       console.error(err);
     });
 }
