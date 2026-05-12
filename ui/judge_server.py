@@ -73,15 +73,12 @@ def _extract_title(content: str, fallback: str) -> str:
 
 
 def _unescape_content(content: str) -> str:
-    """将 JSON 转义序列还原为真实字符。
+    """仅转换 JSON 字符串中常见的转义序列为真实字符。
 
-    Hydro OJ 的 content 字段是 JSON 字符串，\\n 等序列被储存为字面量。
+    Hydro OJ 的 content 字段是 JSON 字符串，\\n \\t \\\\ 等被储存为字面量。
+    不使用 unicode_escape — 会破坏已有中文 UTF-8 内容。
     """
-    import codecs
-    try:
-        return codecs.decode(content, "unicode_escape")
-    except Exception:
-        return content
+    return content.replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\")
 
 
 def _extract_samples(content: str) -> list[str]:
