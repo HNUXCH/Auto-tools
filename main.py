@@ -17,6 +17,7 @@ import tools.word_to_pdf        # noqa: F401
 import tools.crawler_beginner   # noqa: F401
 import tools.crawler_intermediate  # noqa: F401
 import tools.crawler_csp          # noqa: F401
+import tools.code_judge           # noqa: F401
 
 from ui.app import MainWindow
 
