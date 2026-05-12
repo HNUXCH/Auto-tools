@@ -183,11 +183,15 @@ class MainWindow:
 
                 result = tool.run(work, params, _progress, self._cancel_event)
 
-                # 复制输出到用户目录
+                # 复制输出到用户目录（含子目录，如 problems/）
                 if output_dir:
-                    for f in work.iterdir():
-                        if f.is_file():
-                            shutil.copy2(f, output_dir / f.name)
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    for item in work.iterdir():
+                        dest = output_dir / item.name
+                        if item.is_dir():
+                            shutil.copytree(item, dest, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(item, dest)
 
             def _finish() -> None:
                 self._enter_idle()
